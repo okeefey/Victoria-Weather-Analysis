@@ -1,0 +1,382 @@
+---
+title: "Victoria_Weather_Analysis"
+output: html_document
+date: "2025-07-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(lmtest)
+```
+```{r loading_data, include=FALSE}
+# Helper function to read a weather CSV and coerce all 'Flag' columns to character
+read_weather <- function(file) {
+  df <- read_csv(file, show_col_types = FALSE)
+  flag_cols <- grep("Flag$", names(df), value = TRUE)
+  for (col in flag_cols) {
+    df[[col]] <- as.character(df[[col]])
+  }
+  return(df)
+}
+
+# Load and preprocess different time periods
+load_period <- function(files, station) {
+  files %>%
+    lapply(read_weather) %>%
+    bind_rows() %>%
+    select(date = `Date/Time`, max_temp = `Max Temp (°C)`, min_temp = `Min Temp (°C)`, mean_temp = `Mean Temp (°C)`) %>%
+    mutate(date = as.Date(date), year = year(date), month = month(date)) %>%
+    filter(!is.na(mean_temp))
+}
+
+summarize_monthly <- function(df) {
+  df %>%
+    group_by(year, month) %>%
+    summarise(avg_temp = mean(mean_temp, na.rm = TRUE), .groups = "drop") %>%
+    mutate(
+      year_month = as.Date(paste(year, month, "01", sep = "-")),
+      year_fraction = year + (month - 1) / 12
+    )
+}
+
+weather_data1 <- load_period(
+  c("en_climate_daily_BC_1018611_2009_P1D.csv", "en_climate_daily_BC_1018611_2010_P1D.csv",
+    "en_climate_daily_BC_1018611_2011_P1D.csv", "en_climate_daily_BC_1018611_2012_P1D.csv",
+    "en_climate_daily_BC_1018611_2013_P1D.csv", "en_climate_daily_BC_1018611_2014_P1D.csv"),
+  "1018611"
+)
+monthly_summary1 <- summarize_monthly(weather_data1)
+
+weather_data2 <- load_period(
+  c("en_climate_daily_BC_1018633_2019_P1D.csv", "en_climate_daily_BC_1018633_2020_P1D.csv",
+    "en_climate_daily_BC_1018633_2021_P1D.csv", "en_climate_daily_BC_1018633_2022_P1D.csv",
+    "en_climate_daily_BC_1018633_2023_P1D.csv", "en_climate_daily_BC_1018633_2024_P1D.csv"),
+  "1018633"
+)
+monthly_summary2 <- summarize_monthly(weather_data2)
+
+weather_data3 <- load_period(paste0("en_climate_daily_BC_1018642_", 1974:1979, "_P1D.csv"), "1018642")
+monthly_summary3 <- summarize_monthly(weather_data3)
+
+weather_data4 <- load_period(paste0("en_climate_daily_BC_1018642_", 1984:1989, "_P1D.csv"), "1018642")
+monthly_summary4 <- summarize_monthly(weather_data4)
+
+
+```
+
+# Monthly Trend in Victoria
+
+```{r monthly}
+ggplot(monthly_summary2, aes(x = year_month, y = avg_temp)) +
+  geom_line(color = "steelblue") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(
+    title = "Monthly Average Temperature in Victoria (2019–2024)",
+    x = "Month",
+    y = "Average Temperature (°C)"
+  ) +
+  theme_minimal()
+```
+
+# Linear regression
+
+```{r linear reg}
+model <- lm(avg_temp ~ year_fraction, data = monthly_summary2)
+summary(model)
+```
+
+# Seasonality model
+
+```{r fixed}
+monthly_summary2 <- monthly_summary2 %>%
+  mutate(centered_year = year_fraction - 2021.5,
+         sin_month = sin(2 * pi * month / 12),
+         cos_month = cos(2 * pi * month / 12))
+
+model_seasonal <- lm(avg_temp ~ centered_year + sin_month + cos_month, data = monthly_summary2)
+summary(model_seasonal)
+
+monthly_summary2 <- monthly_summary2 %>%
+  mutate(predicted_temp = predict(model_seasonal))
+
+ggplot(monthly_summary2, aes(x = year_month)) +
+  geom_line(aes(y = avg_temp), color = "steelblue") +
+  geom_line(aes(y = predicted_temp), color = "darkorange", linetype = "dashed") +
+  labs(title = "Improved Model Fit with Seasonality (2019–2024)",
+       x = "Date", y = "Temperature (°C)",
+       caption = "Solid = Actual | Dashed = Fitted") +
+  theme_minimal()
+
+```
+# Two-Sample t-test: 2019 vs 2024
+
+```{r t-test}
+t.test(
+  monthly_summary2 %>% filter(year == 2019) %>% pull(avg_temp),
+  monthly_summary2 %>% filter(year == 2024) %>% pull(avg_temp),
+  var.equal = FALSE
+)
+
+```
+
+# Heteroskedascity Check
+
+```{r heteroskedascity}
+bptest(model)
+```
+
+# Daily Mean Temperatures by Year
+
+```{r daily-mean-temps}
+ggplot(weather_data2, aes(x = factor(year), y = mean_temp)) +
+  geom_boxplot(fill = "lightblue", color = "darkblue") +
+  labs(
+    title = "Distribution of Daily Mean Temperatures by Year",
+    x = "Year",
+    y = "Mean Temperature (°C)"
+  ) +
+  theme_minimal()
+```
+
+# Monthly Temperature Patterns by Year
+
+```{r monthlies}
+monthly_summary2 %>%
+  ggplot(aes(x = month, y = avg_temp, group = year, color = factor(year))) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  labs(
+    title = "Monthly Temperature Patterns by Year",
+    x = "Month",
+    y = "Average Temp (°C)",
+    color = "Year"
+  ) +
+  theme_minimal()
+```
+
+# Prediction of the next ten years
+
+```{r prediction}
+future_months <- expand.grid(
+  year = 2025:2034,
+  month = 1:12
+) %>%
+  mutate(
+    year_fraction = year + (month - 1)/12,
+    year_month = as.Date(paste(year, month, "01", sep = "-"))
+  )
+
+future_months$predicted_temp <- predict(model, newdata = future_months)
+
+ggplot() +
+  geom_line(data = monthly_summary2, aes(x = year_month, y = avg_temp), color = "steelblue") +
+  geom_line(data = future_months, aes(x = year_month, y = predicted_temp), color = "darkred", linetype = "dashed") +
+  labs(
+    title = "Extrapolated Monthly Average Temperature (2019–2034)",
+    x = "Date",
+    y = "Avg Temp (°C)",
+    caption = "Red dashed line: Linear extrapolation"
+  ) +
+  theme_minimal()
+```
+
+# Is there any anomalies?
+
+```{r anomalies}
+monthly_summary2 <- monthly_summary2 %>%
+  mutate(temp_z = scale(avg_temp)[,1], is_anomaly = abs(temp_z) > 2)
+
+ggplot(monthly_summary2, aes(x = year_month, y = avg_temp)) +
+  geom_line(color = "steelblue") +
+  geom_point(aes(color = is_anomaly), size = 2) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "orange")) +
+  labs(title = "Temperature Anomalies in Victoria (2019–2024)",
+       x = "Month", y = "Avg Temp (°C)", color = "Anomaly") +
+  theme_minimal()
+
+```
+
+# Comparison at the end
+
+```{r comparison}
+combined_summary <- bind_rows(
+  monthly_summary1 %>% mutate(period = "2009-2014"),
+  monthly_summary2 %>% mutate(period = "2019-2024")
+)
+
+ggplot(combined_summary, aes(x = period, y = avg_temp, fill = period)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Comparison of Monthly Average Temperatures", x = "Period", y = "Avg Temp (°C)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r overlay_plot}
+combined_monthly <- bind_rows(
+  monthly_summary1 %>% mutate(period = "2009-2014"),
+  monthly_summary2 %>% mutate(period = "2019-2024")
+)
+
+ggplot(combined_monthly, aes(x = year_month, y = avg_temp, color = period)) +
+  geom_line(size = 1) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(
+    title = "Overlay of Monthly Average Temperatures\n(2009–2014 vs 2019–2024)",
+    x = "Date",
+    y = "Average Temperature (°C)",
+    color = "Period"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("2009-2014" = "steelblue", "2019-2024" = "forestgreen"))
+```
+
+```{r longweather}
+load_weather_period <- function(years, station_id) {
+  files <- paste0("en_climate_daily_BC_", station_id, "_", years, "_P1D.csv")
+  files %>%
+    lapply(read_weather) %>%
+    bind_rows() %>%
+    select(date = `Date/Time`, 
+           max_temp = `Max Temp (°C)`, 
+           min_temp = `Min Temp (°C)`, 
+           mean_temp = `Mean Temp (°C)`) %>%
+    mutate(date = as.Date(date),
+           year = year(date),
+           month = month(date)) %>%
+    filter(!is.na(mean_temp))
+}
+```
+
+```{r calllong}
+weather_70s <- load_weather_period(1974:1979, "1018642")
+weather_80s <- load_weather_period(1984:1989, "1018642")
+```
+
+# Compare earlier and later periods
+
+```{r com}
+monthly_summary1$period <- "2009–2014"
+monthly_summary2$period <- "2019–2024"
+monthly_summary3$period <- "1974–1979"
+monthly_summary4$period <- "1984–1989"
+
+combined_summary <- bind_rows(monthly_summary1, monthly_summary2, monthly_summary3, monthly_summary4)
+
+ggplot(combined_summary, aes(x = year_fraction, y = avg_temp, color = period)) +
+  geom_line(size = 1) +
+  geom_smooth(se = FALSE, method = "lm", linetype = "dashed") +
+  labs(title = "Monthly Average Temperature Over Time",
+       x = "Year",
+       y = "Average Temperature (°C)",
+       color = "Period") +
+  theme_minimal()
+
+t_test_result <- t.test(
+  monthly_summary1$avg_temp,
+  monthly_summary4$avg_temp,
+  var.equal = FALSE
+)
+
+t_test_result
+
+
+```
+
+# Boxplot comparison
+
+```{r box}
+early_period <- bind_rows(monthly_summary3, monthly_summary4) %>%
+  mutate(period_group = "Earlier (1974–1989)")
+
+late_period <- bind_rows(monthly_summary1, monthly_summary2) %>%
+  mutate(period_group = "Later (2009–2024)")
+
+full_comparison <- bind_rows(early_period, late_period)
+
+ggplot(full_comparison, aes(x = period_group, y = avg_temp, fill = period_group)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Monthly Average Temperatures: Earlier vs. Later Periods",
+       x = "Period",
+       y = "Average Temperature (°C)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+t_test_full <- t.test(
+  avg_temp ~ period_group,
+  data = full_comparison,
+  var.equal = FALSE
+)
+
+t_test_full
+```
+
+# Mean temps over time
+
+```{r mean}
+full_comparison %>%
+  group_by(period_group) %>%
+  summarise(mean_temp = mean(avg_temp), .groups = "drop")
+```
+
+# Monthly max
+
+```{r monthmax}
+monthly_max1 <- weather_data1 %>%
+  group_by(year, month) %>%
+  summarise(max_temp = mean(max_temp, na.rm = TRUE), .groups = "drop") %>%
+  mutate(period = "2009–2014")
+
+monthly_max2 <- weather_data2 %>%
+  group_by(year, month) %>%
+  summarise(max_temp = mean(max_temp, na.rm = TRUE), .groups = "drop") %>%
+  mutate(period = "2019–2024")
+
+monthly_max3 <- weather_data3 %>%
+  group_by(year, month) %>%
+  summarise(max_temp = mean(max_temp, na.rm = TRUE), .groups = "drop") %>%
+  mutate(period = "1974–1979")
+
+monthly_max4 <- weather_data4 %>%
+  group_by(year, month) %>%
+  summarise(max_temp = mean(max_temp, na.rm = TRUE), .groups = "drop") %>%
+  mutate(period = "1984–1989")
+
+monthly_max_combined <- bind_rows(monthly_max1, monthly_max2, monthly_max3, monthly_max4)
+
+monthly_max_combined %>%
+  mutate(year_fraction = year + (month - 1) / 12) %>%
+  ggplot(aes(x = year_fraction, y = max_temp, color = period)) +
+  geom_line(size = 1) +
+  geom_smooth(method = "lm", linetype = "dashed", se = FALSE) +
+  labs(
+    title = "Monthly Maximum Temperature Over Time by Period",
+    x = "Year",
+    y = "Max Temperature (°C)",
+    color = "Period"
+  ) +
+  theme_minimal()
+
+monthly_max_combined %>%
+  ggplot(aes(x = period, y = max_temp, fill = period)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(
+    title = "Distribution of Monthly Maximum Temperatures by Period",
+    x = "Period",
+    y = "Max Temperature (°C)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+monthly_max_combined %>%
+  mutate(period_group = ifelse(period %in% c("1974–1979", "1984–1989"), "Earlier", "Later")) %>%
+  group_by(period_group) %>%
+  summarise(mean_max_temp = mean(max_temp, na.rm = TRUE), .groups = "drop")
+```
