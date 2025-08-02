@@ -46,25 +46,25 @@ summarize_monthly <- function(df) {
 }
 
 weather_data1 <- load_period(
-  c("en_climate_daily_BC_1018611_2009_P1D.csv", "en_climate_daily_BC_1018611_2010_P1D.csv",
-    "en_climate_daily_BC_1018611_2011_P1D.csv", "en_climate_daily_BC_1018611_2012_P1D.csv",
-    "en_climate_daily_BC_1018611_2013_P1D.csv", "en_climate_daily_BC_1018611_2014_P1D.csv"),
+  c("data\en_climate_daily_BC_1018611_2009_P1D.csv", "en_climate_daily_BC_1018611_2010_P1D.csv",
+    "data\en_climate_daily_BC_1018611_2011_P1D.csv", "en_climate_daily_BC_1018611_2012_P1D.csv",
+    "data\en_climate_daily_BC_1018611_2013_P1D.csv", "en_climate_daily_BC_1018611_2014_P1D.csv"),
   "1018611"
 )
 monthly_summary1 <- summarize_monthly(weather_data1)
 
 weather_data2 <- load_period(
-  c("en_climate_daily_BC_1018633_2019_P1D.csv", "en_climate_daily_BC_1018633_2020_P1D.csv",
-    "en_climate_daily_BC_1018633_2021_P1D.csv", "en_climate_daily_BC_1018633_2022_P1D.csv",
-    "en_climate_daily_BC_1018633_2023_P1D.csv", "en_climate_daily_BC_1018633_2024_P1D.csv"),
+  c("data\en_climate_daily_BC_1018633_2019_P1D.csv", "en_climate_daily_BC_1018633_2020_P1D.csv",
+    "data\en_climate_daily_BC_1018633_2021_P1D.csv", "en_climate_daily_BC_1018633_2022_P1D.csv",
+    "data\en_climate_daily_BC_1018633_2023_P1D.csv", "en_climate_daily_BC_1018633_2024_P1D.csv"),
   "1018633"
 )
 monthly_summary2 <- summarize_monthly(weather_data2)
 
-weather_data3 <- load_period(paste0("en_climate_daily_BC_1018642_", 1974:1979, "_P1D.csv"), "1018642")
+weather_data3 <- load_period(paste0("data\en_climate_daily_BC_1018642_", 1974:1979, "_P1D.csv"), "1018642")
 monthly_summary3 <- summarize_monthly(weather_data3)
 
-weather_data4 <- load_period(paste0("en_climate_daily_BC_1018642_", 1984:1989, "_P1D.csv"), "1018642")
+weather_data4 <- load_period(paste0("data\en_climate_daily_BC_1018642_", 1984:1989, "_P1D.csv"), "1018642")
 monthly_summary4 <- summarize_monthly(weather_data4)
 
 
